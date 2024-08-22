@@ -164,6 +164,7 @@ impl MemoryPool for FairSpillPool {
         if consumer.can_spill {
             self.state.lock().num_spill += 1;
         }
+        debug!("FairSpillPool::register {self:?} {consumer:?}");
     }
 
     fn unregister(&self, consumer: &MemoryConsumer) {
@@ -171,6 +172,7 @@ impl MemoryPool for FairSpillPool {
             let mut state = self.state.lock();
             state.num_spill = state.num_spill.checked_sub(1).unwrap();
         }
+        debug!("FairSpillPool::unregister {self:?} {consumer:?}");
     }
 
     fn grow(&self, reservation: &MemoryReservation, additional: usize) {
@@ -179,6 +181,7 @@ impl MemoryPool for FairSpillPool {
             true => state.spillable += additional,
             false => state.unspillable += additional,
         }
+        debug!("FairSpillPool::grow {state:?} consumer={} reservation.size={} additional={additional}", reservation.registration.consumer.name, reservation.size);
     }
 
     fn shrink(&self, reservation: &MemoryReservation, shrink: usize) {
@@ -187,6 +190,7 @@ impl MemoryPool for FairSpillPool {
             true => state.spillable -= shrink,
             false => state.unspillable -= shrink,
         }
+        debug!("FairSpillPool::shrink {state:?} consumer={} reservation.size={} shrink={shrink}", reservation.registration.consumer.name, reservation.size);
     }
 
     fn try_grow(&self, reservation: &MemoryReservation, additional: usize) -> Result<()> {
@@ -203,11 +207,13 @@ impl MemoryPool for FairSpillPool {
                     .unwrap_or(spill_available);
 
                 if reservation.size + additional > available {
-                    return Err(insufficient_capacity_err(
+                    let err = Err(insufficient_capacity_err(
                         reservation,
                         additional,
                         available,
                     ));
+                    debug!("FairSpillPool::try_grow {state:?} consumer={} reservation.size={} additional={additional} => {err:?}", reservation.registration.consumer.name, reservation.size);
+                    return err;
                 }
                 state.spillable += additional;
             }
@@ -217,15 +223,18 @@ impl MemoryPool for FairSpillPool {
                     .saturating_sub(state.unspillable + state.spillable);
 
                 if available < additional {
-                    return Err(insufficient_capacity_err(
+                    let err = Err(insufficient_capacity_err(
                         reservation,
                         additional,
                         available,
                     ));
+                    debug!("FairSpillPool::try_grow {state:?} consumer={} reservation.size={} additional={additional} => {err:?}", reservation.registration.consumer.name, reservation.size);
+                    return err;
                 }
                 state.unspillable += additional;
             }
         }
+        debug!("FairSpillPool::try_grow {state:?} consumer={} reservation.size={} additional={additional}", reservation.registration.consumer.name, reservation.size);
         Ok(())
     }
 
